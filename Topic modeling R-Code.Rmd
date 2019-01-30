@@ -1,0 +1,241 @@
+---
+title: "Text Mining"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load Libraries
+```{r}
+library(tm)
+library(pdftools)
+library(tidyverse)
+library(topicmodels)
+library(tidytext)
+library(ggraph)
+library(igraph)
+library(kableExtra)
+library(doParallel)
+```
+
+#Get and load PDF's
+```{r}
+files <- list.files(path = "C:\\Users\\cba\\OneDrive - Aalborg Universitet\\Papers\\Litterature_after_duplicates", pattern = "pdf$", include.dirs = TRUE)
+
+Rpdf <- readPDF(control = list(text = "-layout"))
+
+setwd("C:\\Users\\cba\\OneDrive - Aalborg Universitet\\Papers\\Litterature_after_duplicates")
+###Remember to manually set working directory
+documents <- lapply(files, pdf_text)  #%>% read_lines())
+
+corp <- Corpus(VectorSource(documents))
+
+##Clean text
+corp <-tm_map(corp,content_transformer(tolower))
+
+#remove punctuation
+corp <- tm_map(corp, removePunctuation)
+#Strip digits
+corp <- tm_map(corp, removeNumbers)
+#remove stopwords
+corp <- tm_map(corp, removeWords, stopwords("english"))
+#remove whitespace
+corp <- tm_map(corp, stripWhitespace)
+#Remove URL
+urlPat<-function(x) gsub("(ftp|http)(s?)://.*\\b", "", x)
+corp<-tm_map(corp, urlPat)
+#Remove Email
+emlPat<-function(x) gsub("\\b[A-Z a-z 0-9._ - ]*[@](.*?)[.]{1,3} \\b", "", x)
+corp<- tm_map(corp, emlPat)
+
+#Stem document
+corp <- tm_map(corp,stemDocument)
+
+#Remove stopwords
+myStopwords <- c("can", "say","one","way","use",
+"also","howev","tell","will",
+"much","need","take","tend","even",
+"like","particular","rather","said",
+"get","well","make","ask","come","end",
+"first","two","help","often","may",
+"might","see","someth","thing","point",
+"post,look,right" , "now","think","'ve",
+"re ","anoth","put","set","new","good",
+"want","sure","kind","larg","yes","day","etc",
+"quit","sinc","attempt","lack","seen","awar",
+"littl","ever","moreov","though","found","abl",
+"enough","far","earli","away","achiev","draw",
+"last","never","brief","bit","entir","brief",
+"great","lot","fig", "let", "follow", "ptrn
+", "aalborg", "universitet", "â???o", "proufbt", "ufbrm", "eufbect", "diufber", "ufbrst", "deufbn", "speciufbc", "signiufbc", "ufbnd", "â???", "firmâ???T", "â???o", "vol", "thern", "ofrn", "journal", "tion", "andrn", "octob" )
+corp <- tm_map(corp, removeWords, myStopwords)
+#inspect a document as a check
+#Good practice to check every now and then
+writeLines(as.character(corp[[30]]))
+
+#Convert to document matrix
+dtm <- DocumentTermMatrix(corp)
+#remove sparse words
+dtm <- removeSparseTerms(dtm,0.99)
+
+#Alternative way to check words for several documents:
+inspect(dtm[1:5,500:510])
+```
+
+#Run LDA
+```{r}
+#convert rownames to filenames
+rownames(dtm) <- files
+#collapse matrix by summing over columns
+freq <- colSums(as.matrix(dtm))
+#length should be total number of terms
+length(freq)
+#create sort order (descending)
+ord <- order(freq,decreasing=TRUE)
+#List all terms in decreasing order of freq and write to disk
+#freq[ord]
+
+#Set parameters for Gibbs sampling
+burnin <- 4000 
+iter <- 4000
+thin <- 500
+seed <-list(3024,547,67,100000457,844)
+nstart <- 5
+keep <- 50
+best <- TRUE
+
+#For loop choosing different number of topics
+#Currently selected 20 topics
+system.time({
+for (index in 1:1) {
+  
+#Number of topics
+if(index == 1) {k=20} else if (index==2) {k=50} else if (index==3) {k=100}
+  
+#Run LDA using Gibbs sampling
+ldaOut <-LDA(dtm,k, method= "Gibbs", control=list(nstart=nstart, seed = seed, best=best, burnin = burnin, iter = iter, thin=thin))
+
+#write out results
+#docs to topics
+ldaOut.topics <- as.matrix(topics(ldaOut))
+
+kable(ldaOut.topics) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover", "striped"), full_width = F, position ="center" )
+
+#top 6 terms in each topic
+
+ldaOut.terms <- as.matrix(terms(ldaOut,10))
+ kable(ldaOut.terms) %>%
+kable_styling(bootstrap_options = c("condensed", "hover", "striped"), full_width = F, position ="center" )
+
+#probabilities associated with each topic assignment
+ #add names to prop table
+ rownames(ldaOut@gamma) <- files
+ topicProbabilities <- as.data.frame(ldaOut@gamma)
+ kable(topicProbabilities, rownames =files) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover", "striped"), full_width = F, position ="center")  
+
+ #Find relative importance of top 2 topics
+topic1ToTopic2 <- lapply(1:nrow(dtm),function(x)
+sort(topicProbabilities[x,])[k]/sort(topicProbabilities[x,])[k-1])
+kable(topic1ToTopic2) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover", "striped"), full_width = F, position ="center" )
+
+#Find relative importance of second and third most important topics
+topic2ToTopic3 <- lapply(1:nrow(dtm),function(x)
+sort(topicProbabilities[x,])[k-1]/sort(topicProbabilities[x,])[k-2])
+ 
+kable(topic1ToTopic2) %>%
+  kable_styling(bootstrap_options = c("condensed", "hover", "striped"), full_width = F, position ="center" )
+#manually set working directory, to specify where the files should be saved.
+setwd("C:\\Users\\cba\\OneDrive - Aalborg Universitet\\Papers\\Litterature Review\\Excel Filer")
+if(index==1) {write.csv(files, file="document names.csv")}
+write.csv(as.matrix(unlist(topic1ToTopic2)),file=paste("Topics", k, "Topic1ToTopic2.csv"))
+write.csv(ldaOut.terms,file=paste("Topics", k, "Topic Overview.csv"))
+write.csv(as.matrix(unlist(topic2ToTopic3)),file=paste("Topics", k,"Topic2ToTopic3.csv"))
+write.csv(topicProbabilities,file=paste("Topics", k,"topicProbabilities.csv"))
+write.csv(unlist(ldaOut.terms),file=paste("Topics", k,"Top10Words.csv"))
+} # end for loop
+})
+
+```
+
+#Cross validation
+```{r}
+n <- nrow(dtm)
+
+#Create training and test dataset
+#in this case 75% is in the training set and 25% in the testset
+splitter <- sample(1:n, round(n * 0.75))
+train_set <- dtm[splitter, ]
+test_set <- dtm[-splitter, ]
+
+#----------------5-fold cross-validation, different numbers of topics----------------
+#Use multiple cores for faster runtime
+cluster <- makeCluster(detectCores(logical = TRUE) - 1) # leave one CPU spare...
+registerDoParallel(cluster)
+
+clusterEvalQ(cluster, {
+   library(topicmodels)
+})
+
+#select parameters for cross validation
+burnin <- 4000 
+iter <- 4000
+thin <- 500
+seed <-list(3024,547,67,100000457,844)
+keep <- 50
+best <- TRUE
+folds <- 5
+splitfolds <- sample(1:folds, n, replace = TRUE)
+candidate_k <- c(100,200) #c(2, 3, 4, 5, 10, 20, 30, 40, 50, 75) #, 100, 200, 300 candidates for how many topics
+clusterExport(cluster, c("dtm", "burnin", "iter", "keep", "splitfolds", "folds", "candidate_k", "LDA"))
+
+# we parallelize by the different number of topics.  A processor is allocated a value
+# of k, and does the cross-validation serially.  This is because it is assumed there
+# are more candidate values of k than there are cross-validation folds, hence it
+# will be more efficient to parallelise
+system.time({
+results <- foreach(j = 1:length(candidate_k), .combine = rbind) %dopar%{
+   k <- candidate_k[j]
+   results_1k <- matrix(0, nrow = folds, ncol = 2)
+   colnames(results_1k) <- c("k", "perplexity")
+   for(i in 1:folds){
+      train_set <- dtm[splitfolds != i , ]
+      test_set <- dtm[splitfolds == i, ]
+      
+      fitted <- LDA(train_set, k = k, method = "Gibbs",
+                    control = list(burnin = burnin, iter = iter, keep=keep ) )
+      results_1k[i,] <- c(k, perplexity(fitted, newdata = valid_set))
+   }
+   return(results_1k)
+}
+})
+stopCluster(cluster)
+
+
+results_df <- as.data.frame(results)
+
+#Export results to csv
+write.csv(results_df,file=paste("cluster analysis.csv"))
+
+#Plot
+ggplot(results_df, aes(x = k, y = perplexity)) +
+   geom_point() +
+   geom_smooth(se = FALSE) +
+   ggtitle("5-fold cross-validation of topic modelling ",
+           "(ie five different models fit for each candidate number of topics)") +
+   labs(x = "Candidate number of topics", y = "Perplexity")
+
+
+```
+
+
+
+
+
+
+
+
