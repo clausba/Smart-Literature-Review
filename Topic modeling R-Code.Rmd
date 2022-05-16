@@ -69,7 +69,7 @@ myStopwords <- c("can", "say","one","way","use",
 "enough","far","earli","away","achiev","draw",
 "last","never","brief","bit","entir","brief",
 "great","lot","fig", "let", "follow", "ptrn
-", "aalborg", "universitet", "â???o", "proufbt", "ufbrm", "eufbect", "diufber", "ufbrst", "deufbn", "speciufbc", "signiufbc", "ufbnd", "â???", "firmâ???T", "â???o", "vol", "thern", "ofrn", "journal", "tion", "andrn", "octob" )
+", "aalborg", "universitet", "Ã¢???o", "proufbt", "ufbrm", "eufbect", "diufber", "ufbrst", "deufbn", "speciufbc", "signiufbc", "ufbnd", "Ã¢???", "firmÃ¢???T", "Ã¢???o", "vol", "thern", "ofrn", "journal", "tion", "andrn", "octob" )
 corp <- tm_map(corp, removeWords, myStopwords)
 #inspect a document as a check
 #Good practice to check every now and then
@@ -208,7 +208,7 @@ results <- foreach(j = 1:length(candidate_k), .combine = rbind) %dopar%{
       
       fitted <- LDA(train_set, k = k, method = "Gibbs",
                     control = list(burnin = burnin, iter = iter, keep=keep ) )
-      results_1k[i,] <- c(k, perplexity(fitted, newdata = valid_set))
+      results_1k[i,] <- c(k, perplexity(fitted, newdata = test_set))
    }
    return(results_1k)
 }
